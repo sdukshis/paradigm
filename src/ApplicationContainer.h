@@ -1,25 +1,22 @@
-#ifndef APPLICATION_CONTAINER_H
-#define APPLICATION_CONTAINER_H
+#ifndef APPLICATION_H
+#define APPLICATION_H
 
 #include <vector>
 #include <memory>
 #include <stdexcept>
 
-#include "Application.h"
 #include "Config.h"
 #include "Logging.h"
 #include "Statistics.h"
 #include "CmdListener.h"
 
-class ApplicationContainer {
+class Application {
  public:
-    ApplicationContainer(int argc, char *argv[]);
+    Application(int argc, char *argv[]);
 
-    ApplicationContainer(const ApplicationContainer &) = delete;
+    Application(const Application &) = delete;
 
-    void operator=(const ApplicationContainer &) = delete;
-
-    void registerApplication(std::unique_ptr<Application>);
+    void operator=(const Application &) = delete;
 
     int run();
 
@@ -50,7 +47,7 @@ class ApplicationContainer {
     //  
     //  Translates any exception to Result::FAIL return code
     //
-    template<Result (ApplicationContainer::*Func)()>
+    template<Result (Application::*Func)()>
     Result tryTo();
 
     Result acquireCriticalResources();
@@ -73,23 +70,15 @@ class ApplicationContainer {
     std::vector<std::unique_ptr<Application>> applications_;
 };
 
-std::atomic<bool> ApplicationContainer::running_(false);
+std::atomic<bool> Application::running_(false);
 
-ApplicationContainer::ApplicationContainer(int argc, char *argv[])
+Application::Application(int argc, char *argv[])
     : state_(State::INIT)
 {
     conf_.parse(argc, argv);
 }
 
-void ApplicationContainer::registerApplication(std::unique_ptr<Application> app)
-{
-    if (!app) {
-        throw std::logic_error("Invalid Application pointer");
-    }
-    applications_.emplace_back(std::move(app));
-}
-
-int ApplicationContainer::run()
+int Application::run()
 {
     running_ = true;
     Result rv;
@@ -100,7 +89,7 @@ int ApplicationContainer::run()
                 state_ = State::ACQUIRE_CRITICAL;
                 break;
             case State::ACQUIRE_CRITICAL:
-                switch (rv = tryTo<&ApplicationContainer::acquireCriticalResources>()) {
+                switch (rv = tryTo<&Application::acquireCriticalResources>()) {
                     case Result::OK:
                         state_ = State::ACQUIRE_NONCRITICAL;
                         break;
@@ -111,7 +100,7 @@ int ApplicationContainer::run()
                 }
                 break;
             case State::ACQUIRE_NONCRITICAL:
-                switch (rv = tryTo<&ApplicationContainer::acquireNonCriticalResources>()) {
+                switch (rv = tryTo<&Application::acquireNonCriticalResources>()) {
                     case Result::OK:
                         state_ = State::STEP;
                         break;
@@ -124,7 +113,7 @@ int ApplicationContainer::run()
                 }
                 break;
             case State::STEP:
-                switch (rv = tryTo<&ApplicationContainer::infrastructureStep>()) {
+                switch (rv = tryTo<&Application::infrastructureStep>()) {
                     case Result::OK:
                         state_ = State::STEP;
                         break;
@@ -135,7 +124,7 @@ int ApplicationContainer::run()
                 }
                 break;
             case State::RELEASE_NONCRITICAL:
-                switch (rv = tryTo<&ApplicationContainer::releaseNonCriticalResources>()) {
+                switch (rv = tryTo<&Application::releaseNonCriticalResources>()) {
                     case Result::OK:
                     case Result::FAIL:
                         state_ = State::ACQUIRE_NONCRITICAL;
@@ -146,7 +135,7 @@ int ApplicationContainer::run()
                 }
                 break;
             case State::RELEASE_CRITICAL:
-                switch (rv = tryTo<&ApplicationContainer::releaseCriticalResources>()) {
+                switch (rv = tryTo<&Application::releaseCriticalResources>()) {
                     case Result::OK:
                     case Result::FAIL:
                     case Result::STOP:
@@ -166,7 +155,7 @@ int ApplicationContainer::run()
 }
 
 const char * 
-ApplicationContainer::to_string(State state)
+Application::to_string(State state)
 {
     switch (state) {
         case State::INIT:                return "INIT"; break;
@@ -180,7 +169,7 @@ ApplicationContainer::to_string(State state)
 }
 
 const char * 
-ApplicationContainer::to_string(Result result)
+Application::to_string(Result result)
 {
     switch (result) {
         case Result::OK:   return "OK"; break;
@@ -190,9 +179,9 @@ ApplicationContainer::to_string(Result result)
 }
 
 
-template<ApplicationContainer::Result (ApplicationContainer::*Func)()>
-ApplicationContainer::Result
-ApplicationContainer::tryTo() {
+template<Application::Result (Application::*Func)()>
+Application::Result
+Application::tryTo() {
     Result rv;
     try {
         rv = (this->*Func)();
@@ -211,8 +200,8 @@ ApplicationContainer::tryTo() {
     return rv;
 }
 
-ApplicationContainer::Result
-ApplicationContainer::acquireCriticalResources()
+Application::Result
+Application::acquireCriticalResources()
 {
     registerSignalHandlers();
     for (auto &app : applications_) {
@@ -223,8 +212,8 @@ ApplicationContainer::acquireCriticalResources()
     return Result::OK;
 }
 
-ApplicationContainer::Result
-ApplicationContainer::acquireNonCriticalResources()
+Application::Result
+Application::acquireNonCriticalResources()
 {
     for (auto &app : applications_) {
         if (app->acquireNonCriticalResources()) {
@@ -234,8 +223,8 @@ ApplicationContainer::acquireNonCriticalResources()
     return Result::OK;
 }
 
-ApplicationContainer::Result
-ApplicationContainer::infrastructureStep()
+Application::Result
+Application::infrastructureStep()
 {
     for (auto &app : applications_) {
         if (app->step()) {
@@ -245,8 +234,8 @@ ApplicationContainer::infrastructureStep()
     return Result::OK;
 }
 
-ApplicationContainer::Result
-ApplicationContainer::releaseNonCriticalResources()
+Application::Result
+Application::releaseNonCriticalResources()
 {
     for (auto &app : applications_) {
         if (app->releaseNonCriticalResources()) {
@@ -256,8 +245,8 @@ ApplicationContainer::releaseNonCriticalResources()
     return Result::OK;
 }
 
-ApplicationContainer::Result
-ApplicationContainer::releaseCriticalResources()
+Application::Result
+Application::releaseCriticalResources()
 {
     for (auto &app : applications_) {
         if (app->releaseCriticalResources()) {
@@ -267,14 +256,14 @@ ApplicationContainer::releaseCriticalResources()
     return Result::OK;
 }
 
-void ApplicationContainer::registerSignalHandlers()
+void Application::registerSignalHandlers()
 {
     if (SIG_ERR == signal(SIGINT, signalHandler)) {
         throw std::runtime_error("error registring signal hadnler");
     }
 }
 
-void ApplicationContainer::signalHandler(int signum)
+void Application::signalHandler(int signum)
 {
     running_ = false;
 }
